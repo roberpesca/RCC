@@ -8,6 +8,11 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Coach" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <!-- Explicit favicon links: there's no favicon.ico file, and the SPA rewrite rule
+         (vercel.json) would otherwise serve the app's HTML for that request instead of
+         a 404, so without this Chrome/etc. silently keep showing a stale cached icon. -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
     <title>Coach — Ciclismo y Nutrición</title>
 
     <!-- Open Graph / link-preview tags (WhatsApp, iMessage, etc. read these directly —
