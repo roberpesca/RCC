@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext.jsx';
 import { api } from '../api/client.js';
 import { todayStr } from '../utils/dates.js';
+import WeekdayPicker from '../components/WeekdayPicker.jsx';
 
 export default function Onboarding() {
   const { refreshProfile, t } = useApp();
@@ -11,6 +12,7 @@ export default function Onboarding() {
     name: '', sex: 'male', birth_year: '', height_cm: '', weight_kg: '',
     ftp_watts: '', goal_type: 'ftp_and_weight', goal_weight_kg: '',
     goal_rate_pct_per_week: 5, weekly_hours_available: 6,
+    available_days: [0, 1, 2, 3, 4, 5, 6],
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
@@ -40,6 +42,7 @@ export default function Onboarding() {
         goal_weight_kg: form.goal_weight_kg ? Number(form.goal_weight_kg) : null,
         goal_rate_pct_per_week: Number(form.goal_rate_pct_per_week),
         weekly_hours_available: Number(form.weekly_hours_available),
+        available_days: form.available_days,
         onboarded: 1,
       });
       if (form.weight_kg) {
@@ -146,6 +149,14 @@ export default function Onboarding() {
         <div>
           <label className={label}>{t('onboarding.hoursAvailable')}</label>
           <input className={input} type="number" step="0.5" value={form.weekly_hours_available} onChange={set('weekly_hours_available')} />
+        </div>
+
+        <div>
+          <label className={label}>{t('onboarding.availableDays')}</label>
+          <div className="mt-1.5">
+            <WeekdayPicker value={form.available_days} onChange={(days) => setForm((f) => ({ ...f, available_days: days }))} />
+          </div>
+          <p className="mt-1.5 text-xs text-neutral-400">{t('onboarding.availableDaysHint')}</p>
         </div>
 
         {err && <p className="text-sm text-rose-600">{err}</p>}

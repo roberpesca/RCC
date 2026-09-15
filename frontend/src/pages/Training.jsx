@@ -10,6 +10,8 @@ export default function Training() {
   const [adapting, setAdapting] = useState(false);
   const [adaptMsg, setAdaptMsg] = useState(null);
   const [openWeek, setOpenWeek] = useState(null);
+  const [reschedulingDate, setReschedulingDate] = useState(null);
+  const [rescheduleMsg, setRescheduleMsg] = useState(null);
 
   const weeks = useMemo(() => {
     if (!plan) return [];
@@ -31,6 +33,18 @@ export default function Training() {
   const markComplete = async (id) => {
     await api.setWorkoutStatus(id, 'completed');
     await refreshPlan();
+  };
+
+  const toggleAvailability = async (date, currentlyAvailable) => {
+    setReschedulingDate(date);
+    setRescheduleMsg(null);
+    try {
+      const res = await api.setDayAvailability(date, currentlyAvailable !== false);
+      await refreshPlan();
+      if (res?.reschedule?.changed > 0) setRescheduleMsg(t('training.rescheduled'));
+    } finally {
+      setReschedulingDate(null);
+    }
   };
 
   const adapt = async () => {
@@ -76,6 +90,7 @@ export default function Training() {
         {adapting ? t('training.adapting') : t('training.adapt')}
       </button>
       {adaptMsg && <p className="mt-1 text-xs text-neutral-400">{adaptMsg}</p>}
+      {rescheduleMsg && <p className="mt-1 text-xs text-brand-600">{rescheduleMsg}</p>}
 
       <div className="mt-5 space-y-3">
         {weeks.map((w) => (
@@ -93,7 +108,12 @@ export default function Training() {
             {openWeek === w.number && (
               <div className="space-y-2 px-4 pb-4">
                 {w.workouts.map((wo) => (
-                  <WorkoutCard key={wo.id} workout={wo} onComplete={markComplete} />
+                  <WorkoutCard
+                    key={wo.id}
+                    workout={wo}
+                    onComplete={markComplete}
+                    onToggleAvailability={reschedulingDate === wo.day_date ? undefined : toggleAvailability}
+                  />
                 ))}
               </div>
             )}

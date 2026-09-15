@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
+import { todayStr } from '../utils/dates.js';
 
 const STATUS_STYLES = {
   planned: 'bg-neutral-100 text-neutral-500',
@@ -7,10 +8,14 @@ const STATUS_STYLES = {
   missed: 'bg-rose-50 text-rose-600',
 };
 
-export default function WorkoutCard({ workout, onComplete, expanded: expandedProp }) {
+export default function WorkoutCard({ workout, onComplete, onToggleAvailability, expanded: expandedProp }) {
   const { t } = useApp();
   const [open, setOpen] = useState(!!expandedProp);
   const isRest = workout.workout_key === 'rest';
+  // Only planned, not-yet-happened days can be blocked/unblocked — the backend only
+  // ever reflows sessions from today onward, so toggling a past or completed day
+  // wouldn't do anything.
+  const canToggleAvailability = !!onToggleAvailability && workout.status === 'planned' && workout.day_date >= todayStr();
 
   return (
     <div className="rounded-2xl border border-neutral-100 bg-white shadow-card">
@@ -23,6 +28,11 @@ export default function WorkoutCard({ workout, onComplete, expanded: expandedPro
               {workout.day_date}
               {!isRest && workout.planned_duration_min ? ` · ${workout.planned_duration_min}${t('common.min')}` : ''}
               {!isRest && workout.planned_tss ? ` · ${workout.planned_tss} TSS` : ''}
+              {workout.dayAvailable === false && (
+                <span className="ml-1.5 rounded-full bg-neutral-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-neutral-500">
+                  {t('training.unavailableBadge')}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -92,6 +102,15 @@ export default function WorkoutCard({ workout, onComplete, expanded: expandedPro
               className="w-full rounded-full bg-brand-600 py-2.5 text-sm font-semibold text-white shadow-pop hover:bg-brand-700"
             >
               {t('workoutCard.markComplete')}
+            </button>
+          )}
+
+          {canToggleAvailability && (
+            <button
+              onClick={() => onToggleAvailability(workout.day_date, workout.dayAvailable)}
+              className="w-full rounded-full border border-neutral-200 py-2 text-xs font-medium text-neutral-500"
+            >
+              {workout.dayAvailable === false ? t('training.markAvailable') : t('training.cantTrain')}
             </button>
           )}
         </div>

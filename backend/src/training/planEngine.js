@@ -1,8 +1,9 @@
-import { db } from '../db.js';
+import { db, getProfile } from '../db.js';
 import { getProgram } from './programs.js';
 import { WORKOUTS, estimateWorkoutTss, estimateWorkoutMinutes } from './workoutLibrary.js';
 import { DEFAULT_LANG, tProgram, tPhase, tWorkout, tSegmentNote } from '../i18n/translations.js';
 import { localDateStr, addDays } from '../shared/dates.js';
+import { getAvailableWeekdays, isDateAvailable, layoutOntoDates } from './scheduler.js';
 
 const REFERENCE_WEEKLY_MINUTES = 8 * 60; // programs are authored assuming ~8h/week riders
 
@@ -48,6 +49,9 @@ export function generatePlan({ userId, programId, startDate, weeks, weeklyHoursA
   const targetWeeklyMinutes = (weeklyHoursAvailable || 8) * 60;
   const hoursScale = Math.min(1.4, Math.max(0.6, targetWeeklyMinutes / (baselineWeeklyMinutes || targetWeeklyMinutes)));
 
+  const profile = getProfile(userId);
+  const weekdaySet = new Set(getAvailableWeekdays(profile));
+
   db.exec('BEGIN');
   try {
     db.prepare(`UPDATE plans SET status = 'archived' WHERE status = 'active' AND user_id = ?`).run(userId);
@@ -68,35 +72,44 @@ export function generatePlan({ userId, programId, startDate, weeks, weeklyHoursA
         ? 0.65
         : Math.min(1.25, 1 + 0.06 * weekInfo.weekInPhase);
 
-      weekInfo.pattern.forEach((workoutKey, dayIdx) => {
+      const factor = progression * hoursScale;
+      const weekDates = Array.from({ length: 7 }, (_, dayIdx) => iso(addDays(start, weekIdx * 7 + dayIdx)));
+      const restRow = () => ({ workout_key: 'rest', structure_json: JSON.stringify([]), planned_tss: 0, planned_duration_min: 0 });
+      const sessionRow = (workoutKey) => {
         const def = WORKOUTS[workoutKey];
-        const dayDate = iso(addDays(start, weekIdx * 7 + dayIdx));
-        if (!def || workoutKey === 'rest' || def.structure.length === 0) {
-          insertWorkout.run({
-            plan_id: planId,
-            week_number: weekIdx + 1,
-            phase: weekInfo.phase,
-            day_date: dayDate,
-            workout_key: workoutKey || 'rest',
-            structure_json: JSON.stringify([]),
-            planned_tss: 0,
-            planned_duration_min: 0,
-          });
-          return;
-        }
-        const factor = progression * hoursScale;
+        if (!def || def.structure.length === 0) return restRow();
         const structure = scaleStructure(def.structure, factor);
-        insertWorkout.run({
-          plan_id: planId,
-          week_number: weekIdx + 1,
-          phase: weekInfo.phase,
-          day_date: dayDate,
+        return {
           workout_key: workoutKey,
           structure_json: JSON.stringify(structure),
           planned_tss: estimateWorkoutTss(structure),
           planned_duration_min: estimateWorkoutMinutes(structure),
+        };
+      };
+
+      const allDaysAvailable = weekDates.every((d) => isDateAvailable(userId, d, weekdaySet));
+
+      if (allDaysAvailable) {
+        // Unconstrained week: keep the program author's exact original day-by-day
+        // order (this is also what every plan looked like before availability
+        // existed as a concept, so nothing changes for anyone who hasn't set it up).
+        weekInfo.pattern.forEach((workoutKey, dayIdx) => {
+          const row = workoutKey === 'rest' ? restRow() : sessionRow(workoutKey);
+          insertWorkout.run({ plan_id: planId, week_number: weekIdx + 1, phase: weekInfo.phase, day_date: weekDates[dayIdx], ...row });
         });
-      });
+      } else {
+        // Constrained week: lay the program's prescribed non-rest sessions onto
+        // whichever days are actually available, dropping the least important ones
+        // first if there isn't room for all of them.
+        const sessions = weekInfo.pattern.filter((k) => k !== 'rest').map((k) => sessionRow(k));
+        const availableDates = weekDates.filter((d) => isDateAvailable(userId, d, weekdaySet));
+        const layout = layoutOntoDates(sessions, availableDates);
+        weekDates.forEach((d) => {
+          const session = layout.has(d) ? layout.get(d) : null;
+          const row = session || restRow();
+          insertWorkout.run({ plan_id: planId, week_number: weekIdx + 1, phase: weekInfo.phase, day_date: d, ...row });
+        });
+      }
     });
 
     db.exec('COMMIT');
@@ -151,9 +164,17 @@ export function getPlan(planId, lang = DEFAULT_LANG, userId = null) {
   if (!plan) return null;
   if (userId != null && plan.user_id !== userId) return null;
   const workouts = db.prepare('SELECT * FROM plan_workouts WHERE plan_id = ? ORDER BY day_date ASC').all(planId);
+  // Availability is looked up from the plan's own owner (plan.user_id), independent
+  // of the `userId` ownership-check param above, so this works even from call sites
+  // that don't have that param handy.
+  const weekdaySet = new Set(getAvailableWeekdays(getProfile(plan.user_id)));
   const raw = {
     ...plan,
-    workouts: workouts.map((w) => ({ ...w, structure: JSON.parse(w.structure_json || '[]') })),
+    workouts: workouts.map((w) => ({
+      ...w,
+      structure: JSON.parse(w.structure_json || '[]'),
+      dayAvailable: isDateAvailable(plan.user_id, w.day_date, weekdaySet),
+    })),
   };
   return decoratePlan(raw, lang);
 }

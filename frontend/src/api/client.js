@@ -114,6 +114,7 @@ export const api = {
   adaptPlan: (planId) => request(`/training/plan/${planId}/adapt`, { method: 'POST' }),
   setWorkoutStatus: (id, status) => request(`/training/workouts/${id}/status`, { method: 'POST', body: { status } }),
   getLoad: (days = 120) => request(`/training/load?days=${days}`),
+  setDayAvailability: (date, blocked) => request(`/training/availability/${date}`, { method: 'PUT', body: { blocked } }),
 
   getNutritionToday: () => request('/nutrition/today'),
   getNutritionWeek: (days = 7) => request(`/nutrition/week?days=${days}`),

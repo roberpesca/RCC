@@ -275,7 +275,26 @@ CREATE TABLE IF NOT EXISTS nutrition_targets (
   generated_at TEXT DEFAULT (datetime('now')),
   UNIQUE(user_id, date)
 );
+
+-- One-off exceptions to the athlete's standing weekly availability pattern (see
+-- profile.available_days below) — e.g. "I normally ride Tuesdays but not this one",
+-- or the reverse, an extra day added just for one week. available: 0 = force
+-- unavailable, 1 = force available. No row for a date means "use the standing pattern".
+CREATE TABLE IF NOT EXISTS availability_overrides (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  available INTEGER NOT NULL,
+  UNIQUE(user_id, date)
+);
 `);
+
+// profile.available_days was added after the initial multi-user schema, so existing
+// databases need the column added explicitly — CREATE TABLE IF NOT EXISTS above only
+// affects brand-new tables.
+if (tableExists('profile') && !columnExists('profile', 'available_days')) {
+  db.exec(`ALTER TABLE profile ADD COLUMN available_days TEXT`);
+}
 
 export function getProfile(userId) {
   const row = db.prepare('SELECT * FROM profile WHERE user_id = ?').get(userId);
@@ -289,7 +308,7 @@ export function updateProfile(userId, fields) {
   const allowed = [
     'name', 'sex', 'birth_year', 'height_cm', 'weight_kg', 'ftp_watts',
     'goal_type', 'goal_weight_kg', 'goal_rate_pct_per_week',
-    'weekly_hours_available', 'units', 'onboarded'
+    'weekly_hours_available', 'units', 'onboarded', 'available_days'
   ];
   const keys = Object.keys(fields).filter((k) => allowed.includes(k));
   if (keys.length === 0) return getProfile(userId);

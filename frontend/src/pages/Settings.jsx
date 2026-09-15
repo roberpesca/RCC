@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext.jsx';
 import { api } from '../api/client.js';
 import ImportPanel from '../components/ImportPanel.jsx';
+import WeekdayPicker from '../components/WeekdayPicker.jsx';
 
 export default function Settings() {
   const { profile, refreshProfile, refreshPlan, stravaConnected, refreshStrava, user, logout, lang, setLang, t } = useApp();
@@ -11,6 +12,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [rescheduleMsg, setRescheduleMsg] = useState(null);
 
   useEffect(() => {
     if (profile) setForm(profile);
@@ -25,8 +27,9 @@ export default function Settings() {
   const save = async (e) => {
     e.preventDefault();
     setSaving(true);
+    setRescheduleMsg(null);
     try {
-      await api.updateProfile({
+      const res = await api.updateProfile({
         name: form.name,
         sex: form.sex,
         birth_year: Number(form.birth_year) || null,
@@ -37,9 +40,14 @@ export default function Settings() {
         goal_weight_kg: Number(form.goal_weight_kg) || null,
         goal_rate_pct_per_week: Number(form.goal_rate_pct_per_week),
         weekly_hours_available: Number(form.weekly_hours_available),
+        available_days: form.available_days,
         units: form.units,
       });
       await refreshProfile();
+      if (res?.reschedule && res.reschedule.changed > 0) {
+        await refreshPlan();
+        setRescheduleMsg(t('training.rescheduled'));
+      }
     } finally {
       setSaving(false);
     }
@@ -183,6 +191,17 @@ export default function Settings() {
           <label className={label}>{t('settings.hoursAvailable')}</label>
           <input className={input} type="number" step="0.5" value={form.weekly_hours_available} onChange={set('weekly_hours_available')} />
         </div>
+        <div>
+          <label className={label}>{t('settings.availableDays')}</label>
+          <div className="mt-1.5">
+            <WeekdayPicker
+              value={form.available_days || [0, 1, 2, 3, 4, 5, 6]}
+              onChange={(days) => setForm((f) => ({ ...f, available_days: days }))}
+            />
+          </div>
+          <p className="mt-1.5 text-xs text-neutral-400">{t('settings.availableDaysHint')}</p>
+        </div>
+        {rescheduleMsg && <p className="text-xs font-medium text-brand-600">{rescheduleMsg}</p>}
         <button type="submit" disabled={saving} className="w-full rounded-full bg-brand-600 py-3 font-semibold text-white shadow-pop disabled:opacity-50">
           {saving ? t('common.saving') : t('settings.save')}
         </button>

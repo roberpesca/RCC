@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { PROGRAMS } from './programs.js';
 import { generatePlan, getActivePlan, getPlan, autoMatchActivities, markWorkoutStatus } from './planEngine.js';
 import { computeLoadSeries, getCurrentLoad, adaptUpcomingWeek } from './adapt.js';
+import { setOverride, clearOverride, rescheduleActivePlan } from './scheduler.js';
 import { getProfile } from '../db.js';
 import { getLang, tProgram, tSystem } from '../i18n/translations.js';
 import { todayStr } from '../shared/dates.js';
@@ -68,6 +69,22 @@ trainingRouter.post('/workouts/:id/status', (req, res) => {
   const ok = markWorkoutStatus(Number(req.params.id), status, matchedActivityId || null, req.userId);
   if (!ok) return res.status(404).json({ error: tSystem(getLang(req), 'unauthorized') });
   res.json({ ok: true });
+});
+
+// Marks (or unmarks) a single date as unavailable to train, then immediately reflows
+// the active plan's still-open sessions around it — a lighter-weight sibling to
+// changing the standing weekly pattern in Settings, scoped to just one day/week.
+trainingRouter.put('/availability/:date', (req, res) => {
+  try {
+    const { date } = req.params;
+    const { blocked } = req.body;
+    if (blocked) setOverride(req.userId, date, 0);
+    else clearOverride(req.userId, date);
+    const reschedule = rescheduleActivePlan(req.userId);
+    res.json({ ok: true, reschedule });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 trainingRouter.get('/load', (req, res) => {
