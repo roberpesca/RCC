@@ -1,6 +1,6 @@
 import { db } from '../db.js';
 import { getPlan } from './planEngine.js';
-import { DEFAULT_LANG, tAdaptReason, tAdaptMessage } from '../i18n/translations.js';
+import { DEFAULT_LANG, tAdaptReason, tAdaptMessage, tMismatchReason } from '../i18n/translations.js';
 import { localDateStr, todayStr } from '../shared/dates.js';
 
 // --- Performance Management Chart: CTL (fitness) / ATL (fatigue) / TSB (form) ---
@@ -115,4 +115,62 @@ export function adaptUpcomingWeek(planId, lang = DEFAULT_LANG, userId) {
   }
 
   return { adaptedWeek: nextWeek, compliance, tsb, factor, reason };
+}
+
+// --- Confirm-first mid-week mismatch adjustment -----------------------------------
+// Triggered by the athlete tapping "yes" on the prompt that appears when a logged
+// ride is way outside what that day's session called for (see
+// training/mismatch.js for the thresholds, and autoMatchActivities in
+// planEngine.js for where the pending flag gets set). Scales the *remaining*
+// not-yet-happened days of that same week — never past/completed ones — using the
+// same kind of factor as adaptUpcomingWeek, so a big blowout eases the rest of the
+// week and a big shortfall trims it slightly rather than piling more on.
+export function applyMismatchAdjustment(workoutId, lang = DEFAULT_LANG, userId) {
+  const trigger = db.prepare(
+    `SELECT pw.* FROM plan_workouts pw JOIN plans p ON p.id = pw.plan_id WHERE pw.id = ? AND p.user_id = ?`
+  ).get(workoutId, userId);
+  if (!trigger) return null;
+  if (trigger.mismatch_status !== 'pending') {
+    return { skipped: true, reason: tAdaptMessage(lang, 'alreadyAdapted', { week: trigger.week_number }) };
+  }
+
+  const remaining = db.prepare(
+    `SELECT * FROM plan_workouts WHERE plan_id = ? AND week_number = ? AND day_date > ? AND status = 'planned'`
+  ).all(trigger.plan_id, trigger.week_number, trigger.day_date);
+
+  const { tsb } = getCurrentLoad(userId);
+  let factor = trigger.mismatch_direction === 'over' ? 0.85 : 0.9;
+  let reason = tMismatchReason(lang, trigger.mismatch_direction === 'over' ? 'overshoot' : 'undershoot');
+  if (tsb < -25) {
+    factor = Math.min(factor, 0.85);
+    reason += tAdaptReason(lang, 'fatigueCap');
+  }
+
+  const update = db.prepare(
+    `UPDATE plan_workouts SET structure_json = ?, planned_tss = ?, planned_duration_min = ?, adapted_from = ? WHERE id = ?`
+  );
+  let adjusted = 0;
+  for (const w of remaining) {
+    const structure = JSON.parse(w.structure_json || '[]');
+    if (w.workout_key === 'rest' || structure.length === 0) continue;
+    const scaled = structure.map((s) => ({ ...s, minutes: Math.max(1, Math.round(s.minutes * factor)) }));
+    const plannedTss = Math.round(
+      scaled.reduce((sum, s) => sum + (s.minutes / 60) * ((s.ifLow + s.ifHigh) / 2) ** 2 * 100, 0)
+    );
+    const plannedMin = Math.round(scaled.reduce((sum, s) => sum + s.minutes, 0));
+    update.run(JSON.stringify(scaled), plannedTss, plannedMin, reason, w.id);
+    adjusted++;
+  }
+
+  db.prepare(`UPDATE plan_workouts SET mismatch_status = 'applied' WHERE id = ?`).run(workoutId);
+  return { adjusted, factor, reason };
+}
+
+export function dismissMismatch(workoutId, userId) {
+  const owned = db.prepare(
+    `SELECT pw.id FROM plan_workouts pw JOIN plans p ON p.id = pw.plan_id WHERE pw.id = ? AND p.user_id = ?`
+  ).get(workoutId, userId);
+  if (!owned) return false;
+  db.prepare(`UPDATE plan_workouts SET mismatch_status = 'dismissed' WHERE id = ?`).run(workoutId);
+  return true;
 }

@@ -8,7 +8,7 @@ const STATUS_STYLES = {
   missed: 'bg-rose-50 text-rose-600',
 };
 
-export default function WorkoutCard({ workout, onComplete, onToggleAvailability, expanded: expandedProp }) {
+export default function WorkoutCard({ workout, onComplete, onToggleAvailability, onMismatchRespond, expanded: expandedProp }) {
   const { t } = useApp();
   const [open, setOpen] = useState(!!expandedProp);
   const isRest = workout.workout_key === 'rest';
@@ -40,6 +40,28 @@ export default function WorkoutCard({ workout, onComplete, onToggleAvailability,
           {t(`workoutCard.${workout.status}`) || workout.status}
         </span>
       </button>
+
+      {workout.mismatch_status === 'pending' && onMismatchRespond && (
+        <div className="mx-4 mb-3 rounded-xl bg-amber-50 p-3">
+          <p className="text-xs text-amber-800">
+            {workout.mismatch_direction === 'over' ? t('workoutCard.mismatchOver') : t('workoutCard.mismatchUnder')}
+          </p>
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => onMismatchRespond(workout.id, 'apply')}
+              className="flex-1 rounded-full bg-amber-600 py-1.5 text-xs font-semibold text-white"
+            >
+              {t('workoutCard.mismatchApply')}
+            </button>
+            <button
+              onClick={() => onMismatchRespond(workout.id, 'dismiss')}
+              className="flex-1 rounded-full border border-amber-300 py-1.5 text-xs font-medium text-amber-700"
+            >
+              {t('workoutCard.mismatchDismiss')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {open && (
         <div className="space-y-3 border-t border-neutral-100 p-4">

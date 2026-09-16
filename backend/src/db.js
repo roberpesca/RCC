@@ -296,6 +296,17 @@ if (tableExists('profile') && !columnExists('profile', 'available_days')) {
   db.exec(`ALTER TABLE profile ADD COLUMN available_days TEXT`);
 }
 
+// mismatch_status ('pending' | 'dismissed' | 'applied') / mismatch_direction ('over' |
+// 'under') track the confirm-first "today's ride didn't match what was planned, want
+// to adjust the rest of the week?" prompt (see training/mismatch.js + adapt.js).
+// mismatch_status stays NULL until a genuinely large planned-vs-actual gap is seen.
+if (tableExists('plan_workouts') && !columnExists('plan_workouts', 'mismatch_status')) {
+  db.exec(`ALTER TABLE plan_workouts ADD COLUMN mismatch_status TEXT`);
+}
+if (tableExists('plan_workouts') && !columnExists('plan_workouts', 'mismatch_direction')) {
+  db.exec(`ALTER TABLE plan_workouts ADD COLUMN mismatch_direction TEXT`);
+}
+
 export function getProfile(userId) {
   const row = db.prepare('SELECT * FROM profile WHERE user_id = ?').get(userId);
   if (row) return row;

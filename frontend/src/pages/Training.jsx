@@ -47,6 +47,17 @@ export default function Training() {
     }
   };
 
+  const respondToMismatch = async (workoutId, action) => {
+    if (action === 'apply') {
+      const res = await api.applyMismatch(workoutId);
+      await refreshPlan();
+      if (res?.adjusted > 0) setRescheduleMsg(t('training.mismatchApplied'));
+    } else {
+      await api.dismissMismatch(workoutId);
+      await refreshPlan();
+    }
+  };
+
   const adapt = async () => {
     setAdapting(true);
     setAdaptMsg(null);
@@ -113,6 +124,7 @@ export default function Training() {
                     workout={wo}
                     onComplete={markComplete}
                     onToggleAvailability={reschedulingDate === wo.day_date ? undefined : toggleAvailability}
+                    onMismatchRespond={respondToMismatch}
                   />
                 ))}
               </div>

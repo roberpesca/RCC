@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { PROGRAMS } from './programs.js';
 import { generatePlan, getActivePlan, getPlan, autoMatchActivities, markWorkoutStatus } from './planEngine.js';
-import { computeLoadSeries, getCurrentLoad, adaptUpcomingWeek } from './adapt.js';
+import { computeLoadSeries, getCurrentLoad, adaptUpcomingWeek, applyMismatchAdjustment, dismissMismatch } from './adapt.js';
 import { setOverride, clearOverride, rescheduleActivePlan } from './scheduler.js';
 import { getProfile } from '../db.js';
 import { getLang, tProgram, tSystem } from '../i18n/translations.js';
@@ -85,6 +85,26 @@ trainingRouter.put('/availability/:date', (req, res) => {
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
+});
+
+// Confirm-first mid-week mismatch prompt (see training/mismatch.js): applying scales
+// the remaining not-yet-happened days of that same week; dismissing just clears the
+// pending flag so the prompt goes away without changing anything.
+trainingRouter.post('/workouts/:id/mismatch/apply', (req, res) => {
+  try {
+    const lang = getLang(req);
+    const result = applyMismatchAdjustment(Number(req.params.id), lang, req.userId);
+    if (!result) return res.status(404).json({ error: tSystem(lang, 'unauthorized') });
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+trainingRouter.post('/workouts/:id/mismatch/dismiss', (req, res) => {
+  const ok = dismissMismatch(Number(req.params.id), req.userId);
+  if (!ok) return res.status(404).json({ error: tSystem(getLang(req), 'unauthorized') });
+  res.json({ ok: true });
 });
 
 trainingRouter.get('/load', (req, res) => {

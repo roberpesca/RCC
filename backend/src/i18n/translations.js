@@ -417,6 +417,21 @@ export function tAdaptReason(lang, kind, params = {}) {
   return pick(table[kind], lang, '');
 }
 
+// --- Mid-week planned-vs-actual mismatch (training/adapt.js applyMismatchAdjustment) ---
+export function tMismatchReason(lang, kind) {
+  const table = {
+    overshoot: {
+      es: "la sesión de hoy fue mucho más dura de lo planeado — aligerando el resto de la semana",
+      en: "today's session was a lot harder than planned — lightening the rest of the week",
+    },
+    undershoot: {
+      es: "la sesión de hoy quedó bastante por debajo de lo planeado — recortando ligeramente el resto de la semana",
+      en: "today's session came in well under what was planned — trimming the rest of the week slightly",
+    },
+  };
+  return pick(table[kind], lang, '');
+}
+
 export function tAdaptMessage(lang, kind, params = {}) {
   const table = {
     noCompletedWeek: { es: 'Aún no hay una semana completada para adaptar.', en: 'No completed week yet to adapt from.' },

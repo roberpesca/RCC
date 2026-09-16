@@ -4,6 +4,7 @@ import { WORKOUTS, estimateWorkoutTss, estimateWorkoutMinutes } from './workoutL
 import { DEFAULT_LANG, tProgram, tPhase, tWorkout, tSegmentNote } from '../i18n/translations.js';
 import { localDateStr, addDays } from '../shared/dates.js';
 import { getAvailableWeekdays, isDateAvailable, layoutOntoDates } from './scheduler.js';
+import { classifyMismatch } from './mismatch.js';
 
 const REFERENCE_WEEKLY_MINUTES = 8 * 60; // programs are authored assuming ~8h/week riders
 
@@ -211,6 +212,15 @@ export function autoMatchActivities(planId, userId) {
     if (candidates.length > 0 && w.status === 'planned') {
       const match = candidates.sort((a, b) => (b.tss_estimate || 0) - (a.tss_estimate || 0))[0];
       markWorkoutStatus(w.id, 'completed', match.id, userId);
+      // Confirm-first prompt: only ever set the first time a workout is matched
+      // (mismatch_status IS NULL guard), so re-opening the app doesn't re-flag
+      // something already answered, and doesn't overwrite an already-pending one.
+      const direction = classifyMismatch(w.planned_tss, match.tss_estimate);
+      if (direction) {
+        db.prepare(
+          `UPDATE plan_workouts SET mismatch_status = 'pending', mismatch_direction = ? WHERE id = ? AND mismatch_status IS NULL`
+        ).run(direction, w.id);
+      }
     } else if (w.status === 'planned' && w.day_date < today) {
       markWorkoutStatus(w.id, 'missed', null, userId);
     }
