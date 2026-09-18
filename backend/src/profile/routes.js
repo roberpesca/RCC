@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, getProfile, updateProfile } from '../db.js';
-import { rescheduleActivePlan } from '../training/scheduler.js';
+import { proposeReschedule } from '../training/scheduler.js';
 
 export const profileRouter = Router();
 
@@ -26,8 +26,15 @@ profileRouter.get('/', (req, res) => {
 
 profileRouter.put('/', (req, res) => {
   const body = { ...req.body };
-  const changingAvailability = Array.isArray(body.available_days);
-  if (changingAvailability) body.available_days = JSON.stringify(body.available_days);
+  const sendsAvailability = Array.isArray(body.available_days);
+  // Only worth recomputing a reschedule proposal if the pattern actually changed —
+  // the frontend resends available_days on every save regardless of which field was
+  // edited, so comparing against what was already stored avoids needlessly
+  // re-running this (and surfacing a stale confirm prompt) on an unrelated save.
+  const previous = sendsAvailability ? decorateProfileOut(getProfile(req.userId)).available_days : null;
+  const availabilityChanged =
+    sendsAvailability && JSON.stringify([...body.available_days].sort()) !== JSON.stringify([...previous].sort());
+  if (sendsAvailability) body.available_days = JSON.stringify(body.available_days);
 
   const profile = updateProfile(req.userId, body);
   if (req.body.ftp_watts) {
@@ -35,12 +42,12 @@ profileRouter.put('/', (req, res) => {
   }
 
   let reschedule = null;
-  if (changingAvailability) {
+  if (availabilityChanged) {
     try {
-      reschedule = rescheduleActivePlan(req.userId);
+      reschedule = proposeReschedule(req.userId);
     } catch {
-      // don't fail the profile save if reschedule hits an issue — the new
-      // availability is saved either way and will apply to the next plan/edit
+      // don't fail the profile save if this hits an issue — the new availability
+      // is saved either way and will apply to the next plan/edit
     }
   }
   res.json({ ...decorateProfileOut(profile), reschedule });

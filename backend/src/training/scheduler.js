@@ -7,10 +7,12 @@
 // availability byte-for-byte identical to before this feature existed. The
 // layoutOntoDates() function here is only invoked when a week is actually
 // constrained (fewer available days than prescribed sessions, or specific days
-// forced on/off), by planEngine.js (new plans) and reschedule() below (existing
-// plans reacting to an availability change).
+// forced on/off), by planEngine.js (new plans) and proposeReschedule() below
+// (existing plans reacting to an availability change).
 import { db, getProfile } from '../db.js';
 import { todayStr } from '../shared/dates.js';
+import { getProgram } from './programs.js';
+import { WORKOUTS, estimateWorkoutTss, estimateWorkoutMinutes } from './workoutLibrary.js';
 
 // Athlete-facing day numbering is Mon=0 .. Sun=6 (matches the weekday picker in
 // Settings/Onboarding), not JS's native Sun=0 .. Sat=6.
@@ -140,22 +142,108 @@ export function layoutOntoDates(sessions, dates) {
   return result;
 }
 
-// Reflows every not-yet-happened, not-yet-completed week of the athlete's active plan
-// against their current availability. Called whenever the standing weekly pattern
-// changes (Settings) or a one-off day gets blocked/unblocked (Training tab). A week
-// where every remaining day is still available is left completely untouched — this
-// only ever moves things when something actually needs to move.
+// --- Original-template reconstruction ---------------------------------------
+// Mirrors planEngine.js's generatePlan() phase/week/scaling math, but only to answer
+// "what would this specific day have been, ignoring availability entirely?" — used
+// below so a session that got dropped to rest because a day was unavailable can be
+// restored once that day (or another) opens back up, instead of staying rest forever.
+function buildWeekSequence(program, totalWeeks) {
+  const counts = program.phases.map((p) => Math.round(p.weeksFraction * totalWeeks));
+  let diff = totalWeeks - counts.reduce((a, b) => a + b, 0);
+  counts[counts.length - 1] += diff;
+  const sequence = [];
+  program.phases.forEach((phase, pIdx) => {
+    for (let w = 0; w < counts[pIdx]; w++) {
+      sequence.push({ phase: phase.name, pattern: phase.pattern, weekInPhase: w, weeksInPhase: counts[pIdx] });
+    }
+  });
+  return sequence;
+}
+
+function scaleStructure(structure, factor) {
+  return structure.map((s) => ({ ...s, minutes: Math.max(1, Math.round(s.minutes * factor)) }));
+}
+
+function computeHoursScale(program, weeklyHoursAvailable) {
+  const baselineWeeklyMinutes = program.phases[0].pattern.reduce((sum, key) => {
+    const w = WORKOUTS[key];
+    return sum + (w ? estimateWorkoutMinutes(w.structure) : 0);
+  }, 0);
+  const targetWeeklyMinutes = (weeklyHoursAvailable || 8) * 60;
+  return Math.min(1.4, Math.max(0.6, targetWeeklyMinutes / (baselineWeeklyMinutes || targetWeeklyMinutes)));
+}
+
+function buildSessionRow(workoutKey, factor) {
+  const def = WORKOUTS[workoutKey];
+  if (!def || def.structure.length === 0) return null;
+  const structure = scaleStructure(def.structure, factor);
+  return {
+    workout_key: workoutKey,
+    structure_json: JSON.stringify(structure),
+    planned_tss: estimateWorkoutTss(structure),
+    planned_duration_min: estimateWorkoutMinutes(structure),
+    adapted_from: null,
+  };
+}
+
+// Returns { keys, factor } for a given week number: `keys` is the program's full list
+// of non-rest workout keys prescribed for that week (with multiplicity — a week can
+// legitimately call for the same key twice), `factor` is the duration/TSS scale that
+// week would be built at today. Deliberately NOT tied to a specific day-of-week slot:
+// a constrained week never had a fixed day<->session mapping in the first place (it
+// was laid out by layoutOntoDates, which repositions freely), so the only thing that
+// generalizes across both an originally-unconstrained week and an originally-
+// constrained one is "which sessions does the template call for this week", not
+// "what belongs on day N specifically".
+function templateForWeek(program, totalWeeks, weekNumber, hoursScale) {
+  const weekSeq = buildWeekSequence(program, totalWeeks);
+  const weekIdx = weekNumber - 1;
+  const weekInfo = weekSeq[weekIdx];
+  if (!weekInfo) return { keys: [], factor: hoursScale };
+  const isStepBack = weekIdx > 0 && (weekIdx + 1) % 4 === 0;
+  const progression = isStepBack ? 0.65 : Math.min(1.25, 1 + 0.06 * weekInfo.weekInPhase);
+  return { keys: weekInfo.pattern.filter((k) => k !== 'rest'), factor: progression * hoursScale };
+}
+
+// Given a week's prescribed session keys and every non-rest row that already exists
+// somewhere in that week (whether open, completed, or in the past), returns the
+// keys with no corresponding row left anywhere — i.e. sessions that were dropped by
+// an earlier constrained reschedule and never came back. Matches by key identity
+// (not day position, and not adaptation state), consuming one prescribed slot per
+// existing row so a week that legitimately calls for the same key twice isn't
+// treated as "one is missing" just because only one row currently has that key.
+function missingTemplateKeys(templateKeys, weekRows) {
+  const remaining = [...templateKeys];
+  for (const r of weekRows) {
+    if (!r.workout_key || r.workout_key === 'rest') continue;
+    const idx = remaining.indexOf(r.workout_key);
+    if (idx !== -1) remaining.splice(idx, 1);
+  }
+  return remaining;
+}
+
+// --- Confirm-first reschedule proposal ---------------------------------------
+// Recomputes every not-yet-happened, not-yet-completed week of the athlete's active
+// plan against their current availability, and stores what WOULD change without
+// touching plan_workouts yet — the athlete has to explicitly apply it (or dismiss
+// it) via the endpoints below, mirroring the mid-week TSS-mismatch confirm prompt.
+// A week where every remaining day is still available is left completely alone.
 //
-// Known simplification: a session dropped because a day became unavailable turns
-// into plain rest and stays that way even if the day later becomes available again
-// (we don't resurrect it) — regaining a day just gives extra recovery going forward.
-export function rescheduleActivePlan(userId) {
+// Unlike the old (pre-confirm) version, the pool of sessions considered for a
+// constrained week is NOT just "whatever isn't currently rest" — it also includes,
+// for any day currently sitting at rest, what the original program template would
+// have put there. That's what lets a previously-dropped session come back once its
+// day (or another day that week) becomes available again, instead of staying rest
+// forever (the old, documented limitation).
+export function proposeReschedule(userId) {
   const plan = db.prepare(`SELECT * FROM plans WHERE status = 'active' AND user_id = ? ORDER BY id DESC LIMIT 1`).get(userId);
   if (!plan) return { changed: 0, noActivePlan: true };
 
   const profile = getProfile(userId);
   const weekdaySet = new Set(getAvailableWeekdays(profile));
   const today = todayStr();
+  const program = getProgram(plan.program_id);
+  const hoursScale = program ? computeHoursScale(program, profile?.weekly_hours_available) : 1;
 
   const rows = db.prepare('SELECT * FROM plan_workouts WHERE plan_id = ? ORDER BY day_date ASC').all(plan.id);
   const byWeek = new Map();
@@ -164,22 +252,38 @@ export function rescheduleActivePlan(userId) {
     byWeek.get(r.week_number).push(r);
   }
 
-  const update = db.prepare(
-    `UPDATE plan_workouts SET workout_key = ?, structure_json = ?, planned_tss = ?, planned_duration_min = ?, adapted_from = ?, status = 'planned', matched_activity_id = NULL WHERE id = ?`
-  );
-
   let changed = 0;
   db.exec('BEGIN');
   try {
-    for (const weekRows of byWeek.values()) {
+    db.prepare('DELETE FROM pending_reschedule WHERE plan_id = ?').run(plan.id);
+    const insertPending = db.prepare(
+      `INSERT INTO pending_reschedule (plan_id, workout_id, day_date, workout_key, structure_json, planned_tss, planned_duration_min, adapted_from)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+
+    for (const [weekNumber, weekRows] of byWeek.entries()) {
       const open = weekRows.filter((r) => r.status === 'planned' && r.day_date >= today);
       if (open.length === 0) continue;
 
       const openDates = open.map((r) => r.day_date);
       const availableDates = openDates.filter((d) => isDateAvailable(userId, d, weekdaySet));
-      if (availableDates.length === openDates.length) continue; // nothing blocked this week — no-op
 
-      const sessions = open
+      // Live (non-rest, open) sessions keep whatever they currently are — including
+      // any prior adaptation — so a legitimate mid-week adjustment never gets
+      // clobbered. Anything the program's template calls for this week that has no
+      // corresponding row anywhere (open, completed, or past) was dropped by an
+      // earlier constrained reschedule and gets reconstructed fresh — that's the
+      // "restore" path, and it's what lets a previously-dropped session come back
+      // once there's room for it again, instead of staying rest forever.
+      let missing = [];
+      if (program) {
+        const { keys, factor } = templateForWeek(program, plan.weeks, weekNumber, hoursScale);
+        missing = missingTemplateKeys(keys, weekRows)
+          .map((key) => buildSessionRow(key, factor))
+          .filter(Boolean);
+      }
+
+      const liveOpenNonRest = open
         .filter((r) => r.workout_key && r.workout_key !== 'rest')
         .map((r) => ({
           workout_key: r.workout_key,
@@ -189,17 +293,29 @@ export function rescheduleActivePlan(userId) {
           adapted_from: r.adapted_from,
         }));
 
+      const sessions = liveOpenNonRest.concat(missing);
+
+      // Nothing blocked and nothing to restore this week — skip it entirely.
+      if (availableDates.length === openDates.length && missing.length === 0) {
+        continue;
+      }
+
       const layout = layoutOntoDates(sessions, availableDates);
       const byDate = new Map(open.map((r) => [r.day_date, r]));
 
       for (const d of openDates) {
         const row = byDate.get(d);
         const session = layout.has(d) ? layout.get(d) : null;
-        if (session) {
-          update.run(session.workout_key, session.structure_json, session.planned_tss, session.planned_duration_min, session.adapted_from ?? null, row.id);
-        } else {
-          update.run('rest', JSON.stringify([]), 0, 0, null, row.id);
-        }
+        const newKey = session ? session.workout_key : 'rest';
+        const newStructure = session ? session.structure_json : JSON.stringify([]);
+        const newTss = session ? session.planned_tss : 0;
+        const newDur = session ? session.planned_duration_min : 0;
+        const newAdapted = session ? session.adapted_from ?? null : null;
+
+        const isNoOp = row.workout_key === newKey && Number(row.planned_tss) === Number(newTss) && row.structure_json === newStructure;
+        if (isNoOp) continue;
+
+        insertPending.run(plan.id, row.id, d, newKey, newStructure, newTss, newDur, newAdapted);
         changed++;
       }
     }
@@ -209,4 +325,48 @@ export function rescheduleActivePlan(userId) {
     throw e;
   }
   return { changed, planId: plan.id };
+}
+
+// Rows currently proposed for a plan, joined with each workout's present values so
+// callers (the API / UI) can show a clear "from -> to" summary before the athlete
+// decides whether to apply.
+export function getPendingReschedule(planId) {
+  return db
+    .prepare(
+      `SELECT p.id, p.workout_id, p.day_date, p.workout_key AS new_workout_key, p.planned_tss AS new_planned_tss,
+              w.workout_key AS current_workout_key, w.planned_tss AS current_planned_tss
+       FROM pending_reschedule p JOIN plan_workouts w ON w.id = p.workout_id
+       WHERE p.plan_id = ? ORDER BY p.day_date ASC`
+    )
+    .all(planId);
+}
+
+export function applyPendingReschedule(userId) {
+  const plan = db.prepare(`SELECT * FROM plans WHERE status = 'active' AND user_id = ? ORDER BY id DESC LIMIT 1`).get(userId);
+  if (!plan) return { applied: 0, noActivePlan: true };
+
+  const rows = db.prepare('SELECT * FROM pending_reschedule WHERE plan_id = ?').all(plan.id);
+  const update = db.prepare(
+    `UPDATE plan_workouts SET workout_key = ?, structure_json = ?, planned_tss = ?, planned_duration_min = ?, adapted_from = ?, status = 'planned', matched_activity_id = NULL WHERE id = ?`
+  );
+
+  db.exec('BEGIN');
+  try {
+    for (const r of rows) {
+      update.run(r.workout_key, r.structure_json, r.planned_tss, r.planned_duration_min, r.adapted_from, r.workout_id);
+    }
+    db.prepare('DELETE FROM pending_reschedule WHERE plan_id = ?').run(plan.id);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return { applied: rows.length, planId: plan.id };
+}
+
+export function dismissPendingReschedule(userId) {
+  const plan = db.prepare(`SELECT id FROM plans WHERE status = 'active' AND user_id = ? ORDER BY id DESC LIMIT 1`).get(userId);
+  if (!plan) return { dismissed: 0, noActivePlan: true };
+  const info = db.prepare('DELETE FROM pending_reschedule WHERE plan_id = ?').run(plan.id);
+  return { dismissed: info.changes, planId: plan.id };
 }

@@ -307,6 +307,30 @@ if (tableExists('plan_workouts') && !columnExists('plan_workouts', 'mismatch_dir
   db.exec(`ALTER TABLE plan_workouts ADD COLUMN mismatch_direction TEXT`);
 }
 
+// Confirm-first proposal for the availability rescheduler (see training/scheduler.js):
+// an availability change (Settings pattern, or a one-off "can't train this day" toggle)
+// computes what WOULD move, stores it here, and only writes it into plan_workouts once
+// the athlete taps "apply" — the same confirm-before-changing-your-plan pattern already
+// used for the mid-week TSS-mismatch prompt above. One row per affected workout;
+// superseded automatically (see scheduler.js) if another availability change comes in
+// before the athlete responds.
+if (!tableExists('pending_reschedule')) {
+  db.exec(`
+    CREATE TABLE pending_reschedule (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id INTEGER NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+      workout_id INTEGER NOT NULL UNIQUE REFERENCES plan_workouts(id) ON DELETE CASCADE,
+      day_date TEXT NOT NULL,
+      workout_key TEXT NOT NULL,
+      structure_json TEXT NOT NULL,
+      planned_tss REAL NOT NULL,
+      planned_duration_min REAL NOT NULL,
+      adapted_from TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+}
+
 export function getProfile(userId) {
   const row = db.prepare('SELECT * FROM profile WHERE user_id = ?').get(userId);
   if (row) return row;

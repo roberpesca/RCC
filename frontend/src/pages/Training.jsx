@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext.jsx';
 import { api } from '../api/client.js';
 import WorkoutCard from '../components/WorkoutCard.jsx';
+import PendingRescheduleBanner from '../components/PendingRescheduleBanner.jsx';
 import { todayStr } from '../utils/dates.js';
 
 export default function Training() {
@@ -39,9 +40,10 @@ export default function Training() {
     setReschedulingDate(date);
     setRescheduleMsg(null);
     try {
-      const res = await api.setDayAvailability(date, currentlyAvailable !== false);
+      await api.setDayAvailability(date, currentlyAvailable !== false);
       await refreshPlan();
-      if (res?.reschedule?.changed > 0) setRescheduleMsg(t('training.rescheduled'));
+      // A pending proposal (if any) now shows up via plan.pendingReschedule and the
+      // PendingRescheduleBanner below — nothing is applied until the athlete confirms.
     } finally {
       setReschedulingDate(null);
     }
@@ -102,6 +104,10 @@ export default function Training() {
       </button>
       {adaptMsg && <p className="mt-1 text-xs text-neutral-400">{adaptMsg}</p>}
       {rescheduleMsg && <p className="mt-1 text-xs text-brand-600">{rescheduleMsg}</p>}
+
+      <div className="mt-4">
+        <PendingRescheduleBanner pendingReschedule={plan.pendingReschedule} onResolved={refreshPlan} />
+      </div>
 
       <div className="mt-5 space-y-3">
         {weeks.map((w) => (

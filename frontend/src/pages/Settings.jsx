@@ -46,7 +46,7 @@ export default function Settings() {
       await refreshProfile();
       if (res?.reschedule && res.reschedule.changed > 0) {
         await refreshPlan();
-        setRescheduleMsg(t('training.rescheduled'));
+        setRescheduleMsg(t('settings.reschedulePending'));
       }
     } finally {
       setSaving(false);

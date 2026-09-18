@@ -3,7 +3,7 @@ import { getProgram } from './programs.js';
 import { WORKOUTS, estimateWorkoutTss, estimateWorkoutMinutes } from './workoutLibrary.js';
 import { DEFAULT_LANG, tProgram, tPhase, tWorkout, tSegmentNote } from '../i18n/translations.js';
 import { localDateStr, addDays } from '../shared/dates.js';
-import { getAvailableWeekdays, isDateAvailable, layoutOntoDates } from './scheduler.js';
+import { getAvailableWeekdays, isDateAvailable, layoutOntoDates, getPendingReschedule } from './scheduler.js';
 import { classifyMismatch } from './mismatch.js';
 
 const REFERENCE_WEEKLY_MINUTES = 8 * 60; // programs are authored assuming ~8h/week riders
@@ -191,7 +191,25 @@ export function getPlan(planId, lang = DEFAULT_LANG, userId = null) {
       };
     }),
   };
-  return decoratePlan(raw, lang);
+  const decorated = decoratePlan(raw, lang);
+
+  // Confirm-first availability reschedule (see training/scheduler.js): a pending
+  // proposal sits here, translated for display, until the athlete applies or
+  // dismisses it via /training/reschedule/apply|dismiss.
+  const pendingRows = getPendingReschedule(plan.id);
+  decorated.pendingReschedule = pendingRows.length
+    ? {
+        count: pendingRows.length,
+        items: pendingRows.map((r) => ({
+          day_date: r.day_date,
+          from_title: tWorkout(r.current_workout_key, lang).title,
+          to_title: tWorkout(r.new_workout_key, lang).title,
+          from_tss: r.current_planned_tss,
+          to_tss: r.new_planned_tss,
+        })),
+      }
+    : null;
+  return decorated;
 }
 
 // Ownership check by join, since plan_workouts itself carries no user_id.

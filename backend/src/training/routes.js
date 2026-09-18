@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { PROGRAMS } from './programs.js';
 import { generatePlan, getActivePlan, getPlan, autoMatchActivities, markWorkoutStatus } from './planEngine.js';
 import { computeLoadSeries, getCurrentLoad, adaptUpcomingWeek, applyMismatchAdjustment, dismissMismatch } from './adapt.js';
-import { setOverride, clearOverride, rescheduleActivePlan } from './scheduler.js';
+import { setOverride, clearOverride, proposeReschedule, applyPendingReschedule, dismissPendingReschedule } from './scheduler.js';
 import { getProfile } from '../db.js';
 import { getLang, tProgram, tSystem } from '../i18n/translations.js';
 import { todayStr } from '../shared/dates.js';
@@ -71,17 +71,40 @@ trainingRouter.post('/workouts/:id/status', (req, res) => {
   res.json({ ok: true });
 });
 
-// Marks (or unmarks) a single date as unavailable to train, then immediately reflows
-// the active plan's still-open sessions around it — a lighter-weight sibling to
-// changing the standing weekly pattern in Settings, scoped to just one day/week.
+// Marks (or unmarks) a single date as unavailable to train, then computes (but does
+// NOT yet apply) how the active plan's still-open sessions would need to move around
+// it — a lighter-weight sibling to changing the standing weekly pattern in Settings,
+// scoped to just one day/week. The athlete confirms via /reschedule/apply|dismiss.
 trainingRouter.put('/availability/:date', (req, res) => {
   try {
     const { date } = req.params;
     const { blocked } = req.body;
     if (blocked) setOverride(req.userId, date, 0);
     else clearOverride(req.userId, date);
-    const reschedule = rescheduleActivePlan(req.userId);
+    const reschedule = proposeReschedule(req.userId);
     res.json({ ok: true, reschedule });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Confirm-first availability reschedule (see training/scheduler.js): applying writes
+// the proposed changes into the plan; dismissing just discards the proposal, leaving
+// the current schedule untouched (the availability setting itself still stands, but
+// nothing about the plan changes).
+trainingRouter.post('/reschedule/apply', (req, res) => {
+  try {
+    const result = applyPendingReschedule(req.userId);
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+trainingRouter.post('/reschedule/dismiss', (req, res) => {
+  try {
+    const result = dismissPendingReschedule(req.userId);
+    res.json(result);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

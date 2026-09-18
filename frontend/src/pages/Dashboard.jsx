@@ -5,6 +5,7 @@ import { useApp } from '../context/AppContext.jsx';
 import { api } from '../api/client.js';
 import StatCard from '../components/StatCard.jsx';
 import WorkoutCard from '../components/WorkoutCard.jsx';
+import PendingRescheduleBanner from '../components/PendingRescheduleBanner.jsx';
 import { todayStr } from '../utils/dates.js';
 
 export default function Dashboard() {
@@ -72,6 +73,12 @@ export default function Dashboard() {
         </button>
       )}
       {syncMsg && <p className="mt-1 text-xs text-neutral-400">{syncMsg}</p>}
+
+      {plan?.pendingReschedule && (
+        <div className="mt-4">
+          <PendingRescheduleBanner pendingReschedule={plan.pendingReschedule} onResolved={refreshPlan} />
+        </div>
+      )}
 
       <div className="mt-5 grid grid-cols-3 gap-3">
         <StatCard label="FTP" value={profile?.ftp_watts ? `${Math.round(profile.ftp_watts)}w` : '—'} sub={snapshot?.ftpDeltaWatts ? `${snapshot.ftpDeltaWatts > 0 ? '+' : ''}${snapshot.ftpDeltaWatts}w` : undefined} accent="text-brand-600" />

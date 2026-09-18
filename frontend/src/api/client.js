@@ -115,6 +115,8 @@ export const api = {
   setWorkoutStatus: (id, status) => request(`/training/workouts/${id}/status`, { method: 'POST', body: { status } }),
   getLoad: (days = 120) => request(`/training/load?days=${days}`),
   setDayAvailability: (date, blocked) => request(`/training/availability/${date}`, { method: 'PUT', body: { blocked } }),
+  rescheduleApply: () => request('/training/reschedule/apply', { method: 'POST' }),
+  rescheduleDismiss: () => request('/training/reschedule/dismiss', { method: 'POST' }),
   applyMismatch: (id) => request(`/training/workouts/${id}/mismatch/apply`, { method: 'POST' }),
   dismissMismatch: (id) => request(`/training/workouts/${id}/mismatch/dismiss`, { method: 'POST' }),
 
