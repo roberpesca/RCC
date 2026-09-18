@@ -29,6 +29,7 @@ export default function Dashboard() {
   const todayWorkout = plan?.workouts?.find((w) => w.day_date === today);
   const weekWorkouts = plan?.workouts?.filter((w) => w.week_number === todayWorkout?.week_number) || [];
   const weeklyPlannedTss = weekWorkouts.reduce((s, w) => s + (w.planned_tss || 0), 0);
+  const weeklyActualTss = weekWorkouts.reduce((s, w) => s + (w.actual_tss || 0), 0);
 
   const sync = async () => {
     setSyncing(true);
@@ -118,7 +119,10 @@ export default function Dashboard() {
         <div className="mt-6">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">{t('dashboard.thisWeek')}</h2>
-            <span className="font-mono text-xs text-neutral-400">{weeklyPlannedTss} {t('dashboard.tssPlanned')}</span>
+            <span className="font-mono text-xs text-neutral-400">
+              {weeklyPlannedTss} {t('dashboard.tssPlanned')}
+              {weeklyActualTss > 0 && ` · ${weeklyActualTss} ${t('dashboard.tssDone')}`}
+            </span>
           </div>
           <div className="space-y-2">
             {weekWorkouts.map((w) => (

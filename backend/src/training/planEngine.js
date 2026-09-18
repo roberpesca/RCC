@@ -169,13 +169,27 @@ export function getPlan(planId, lang = DEFAULT_LANG, userId = null) {
   // of the `userId` ownership-check param above, so this works even from call sites
   // that don't have that param handy.
   const weekdaySet = new Set(getAvailableWeekdays(getProfile(plan.user_id)));
+  // Pull in the actual TSS/duration for any workout that's been matched to a logged
+  // activity, so the UI can show "planned vs. actually done" instead of just planned.
+  const matchedIds = [...new Set(workouts.map((w) => w.matched_activity_id).filter(Boolean))];
+  let actualById = new Map();
+  if (matchedIds.length > 0) {
+    const placeholders = matchedIds.map(() => '?').join(',');
+    const acts = db.prepare(`SELECT id, tss_estimate, moving_time_s FROM activities WHERE id IN (${placeholders})`).all(...matchedIds);
+    actualById = new Map(acts.map((a) => [a.id, a]));
+  }
   const raw = {
     ...plan,
-    workouts: workouts.map((w) => ({
-      ...w,
-      structure: JSON.parse(w.structure_json || '[]'),
-      dayAvailable: isDateAvailable(plan.user_id, w.day_date, weekdaySet),
-    })),
+    workouts: workouts.map((w) => {
+      const act = w.matched_activity_id ? actualById.get(w.matched_activity_id) : null;
+      return {
+        ...w,
+        structure: JSON.parse(w.structure_json || '[]'),
+        dayAvailable: isDateAvailable(plan.user_id, w.day_date, weekdaySet),
+        actual_tss: act && act.tss_estimate != null ? Math.round(act.tss_estimate) : null,
+        actual_duration_min: act && act.moving_time_s != null ? Math.round(act.moving_time_s / 60) : null,
+      };
+    }),
   };
   return decoratePlan(raw, lang);
 }

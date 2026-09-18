@@ -27,7 +27,9 @@ export default function WorkoutCard({ workout, onComplete, onToggleAvailability,
             <div className="mt-0.5 font-mono text-[11px] text-neutral-400">
               {workout.day_date}
               {!isRest && workout.planned_duration_min ? ` · ${workout.planned_duration_min}${t('common.min')}` : ''}
-              {!isRest && workout.planned_tss ? ` · ${workout.planned_tss} TSS` : ''}
+              {!isRest && workout.planned_tss
+                ? ` · ${workout.planned_tss}${workout.actual_tss != null ? `→${workout.actual_tss}` : ''} TSS`
+                : ''}
               {workout.dayAvailable === false && (
                 <span className="ml-1.5 rounded-full bg-neutral-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-neutral-500">
                   {t('training.unavailableBadge')}
@@ -66,6 +68,19 @@ export default function WorkoutCard({ workout, onComplete, onToggleAvailability,
       {open && (
         <div className="space-y-3 border-t border-neutral-100 p-4">
           <p className="text-sm text-neutral-500">{workout.description}</p>
+
+          {workout.actual_tss != null && (
+            <div className="flex gap-4 rounded-xl bg-neutral-50 px-3 py-2.5 font-mono text-xs">
+              <div>
+                <div className="text-[9px] font-bold uppercase tracking-wide text-neutral-400">{t('workoutCard.plannedTss')}</div>
+                <div className="mt-0.5 text-neutral-600">{workout.planned_tss} TSS</div>
+              </div>
+              <div>
+                <div className="text-[9px] font-bold uppercase tracking-wide text-neutral-400">{t('workoutCard.actualTss')}</div>
+                <div className="mt-0.5 font-semibold text-neutral-800">{workout.actual_tss} TSS</div>
+              </div>
+            </div>
+          )}
 
           {workout.purpose && (
             <div className="rounded-xl bg-brand-50 px-3 py-2.5">
