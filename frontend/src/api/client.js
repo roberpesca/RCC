@@ -117,6 +117,9 @@ export const api = {
   setDayAvailability: (date, blocked) => request(`/training/availability/${date}`, { method: 'PUT', body: { blocked } }),
   rescheduleApply: () => request('/training/reschedule/apply', { method: 'POST' }),
   rescheduleDismiss: () => request('/training/reschedule/dismiss', { method: 'POST' }),
+
+  getCalendarFeed: (lang) => request(`/calendar/token?lang=${lang}`),
+  regenerateCalendarFeed: (lang) => request(`/calendar/token/regenerate?lang=${lang}`, { method: 'POST' }),
   applyMismatch: (id) => request(`/training/workouts/${id}/mismatch/apply`, { method: 'POST' }),
   dismissMismatch: (id) => request(`/training/workouts/${id}/mismatch/dismiss`, { method: 'POST' }),
 

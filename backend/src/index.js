@@ -8,10 +8,16 @@ import { trainingRouter } from './training/routes.js';
 import { nutritionRouter } from './nutrition/routes.js';
 import { profileRouter } from './profile/routes.js';
 import { importRouter } from './import/routes.js';
+import { calendarPublicRouter, calendarRouter } from './calendar/routes.js';
 import { getLang, tSystem } from './i18n/translations.js';
 import './db.js'; // ensure schema is initialized (and any one-time migration runs) on boot
 
 const app = express();
+// Railway (and most PaaS hosts) terminate TLS at an edge proxy and forward the
+// original request over plain HTTP internally — without this, req.protocol always
+// reports 'http' even though the real public URL is https, which would otherwise
+// quietly break the calendar-feed URL built in calendar/routes.js.
+app.set('trust proxy', 1);
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
@@ -31,6 +37,11 @@ app.use('/api/training', requireAuth, trainingRouter);
 app.use('/api/nutrition', requireAuth, nutritionRouter);
 app.use('/api/profile', requireAuth, profileRouter);
 app.use('/api/import', requireAuth, importRouter);
+// The .ics feed is hit directly by calendar apps (Google Calendar, Apple Calendar,
+// etc.), which can't send our session's bearer header — it's authenticated by the
+// unguessable token in its own URL instead (see calendar/routes.js).
+app.use('/api/calendar', calendarPublicRouter);
+app.use('/api/calendar', requireAuth, calendarRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);

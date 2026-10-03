@@ -4,6 +4,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { hashPassword } from './auth/passwords.js';
 
 const dbPath = process.env.DB_PATH || './data/coach.db';
@@ -331,11 +332,42 @@ if (!tableExists('pending_reschedule')) {
   `);
 }
 
+// Secret, unguessable token embedded in the .ics calendar-subscription URL (see
+// training/../calendar/routes.js) — this is how a calendar app (which can't send our
+// session's bearer header) proves which athlete's feed it's asking for. Generated
+// lazily on first request, not exposed through the general profile PUT endpoint.
+if (tableExists('profile') && !columnExists('profile', 'calendar_token')) {
+  db.exec(`ALTER TABLE profile ADD COLUMN calendar_token TEXT`);
+}
+
 export function getProfile(userId) {
   const row = db.prepare('SELECT * FROM profile WHERE user_id = ?').get(userId);
   if (row) return row;
   db.prepare(`INSERT INTO profile (user_id, name) VALUES (?, 'Athlete')`).run(userId);
   return db.prepare('SELECT * FROM profile WHERE user_id = ?').get(userId);
+}
+
+// Lazily creates the calendar-feed token the first time it's asked for, instead of
+// at signup — most users will never use the feature, no need to mint a secret for
+// everyone up front. Not reachable through updateProfile()'s generic field list, so
+// a profile PUT can never let someone set their own token.
+export function getOrCreateCalendarToken(userId) {
+  const profile = getProfile(userId);
+  if (profile.calendar_token) return profile.calendar_token;
+  const token = randomBytes(16).toString('hex');
+  db.prepare('UPDATE profile SET calendar_token = ? WHERE user_id = ?').run(token, userId);
+  return token;
+}
+
+export function regenerateCalendarToken(userId) {
+  const token = randomBytes(16).toString('hex');
+  db.prepare('UPDATE profile SET calendar_token = ? WHERE user_id = ?').run(token, userId);
+  return token;
+}
+
+export function getUserIdByCalendarToken(token) {
+  const row = db.prepare('SELECT user_id FROM profile WHERE calendar_token = ?').get(token);
+  return row ? row.user_id : null;
 }
 
 export function updateProfile(userId, fields) {

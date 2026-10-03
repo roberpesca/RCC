@@ -13,6 +13,11 @@ export default function Settings() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [rescheduleMsg, setRescheduleMsg] = useState(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarFeed, setCalendarFeed] = useState(null);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarCopied, setCalendarCopied] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
 
   useEffect(() => {
     if (profile) setForm(profile);
@@ -60,6 +65,39 @@ export default function Settings() {
       await refreshStrava();
     } finally {
       setDisconnecting(false);
+    }
+  };
+
+  const openCalendar = async () => {
+    const opening = !calendarOpen;
+    setCalendarOpen(opening);
+    if (opening && !calendarFeed) {
+      setCalendarLoading(true);
+      try {
+        setCalendarFeed(await api.getCalendarFeed(lang));
+      } finally {
+        setCalendarLoading(false);
+      }
+    }
+  };
+
+  const copyCalendarUrl = async () => {
+    if (!calendarFeed?.url) return;
+    try {
+      await navigator.clipboard.writeText(calendarFeed.url);
+      setCalendarCopied(true);
+      setTimeout(() => setCalendarCopied(false), 2000);
+    } catch {
+      // clipboard API unavailable — the URL is still shown in the input for manual copy
+    }
+  };
+
+  const regenerateCalendar = async () => {
+    setRegenerating(true);
+    try {
+      setCalendarFeed(await api.regenerateCalendarFeed(lang));
+    } finally {
+      setRegenerating(false);
     }
   };
 
@@ -124,6 +162,41 @@ export default function Settings() {
                 </a>
               )}
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3">
+        <button
+          onClick={openCalendar}
+          className="flex w-full items-center justify-between rounded-2xl border border-neutral-100 bg-white px-4 py-3 text-left shadow-card"
+        >
+          <span className="text-sm font-medium text-neutral-700">{t('settings.calendarSync')}</span>
+          <span className="text-xs text-neutral-400">{calendarOpen ? '▲' : '▼'}</span>
+        </button>
+        {calendarOpen && (
+          <div className="mt-2 rounded-2xl border border-neutral-100 bg-white p-4 shadow-card">
+            <p className="text-xs text-neutral-500">{t('settings.calendarSyncDesc')}</p>
+            {calendarLoading || !calendarFeed ? (
+              <p className="mt-3 text-xs text-neutral-400">{t('common.loading')}</p>
+            ) : (
+              <>
+                <div className="mt-3 flex gap-2">
+                  <input readOnly className={`${input} text-xs`} value={calendarFeed.url} onClick={(e) => e.target.select()} />
+                  <button onClick={copyCalendarUrl} className="shrink-0 rounded-xl bg-neutral-900 px-3 py-2.5 text-xs font-medium text-white">
+                    {calendarCopied ? t('settings.copied') : t('settings.copyLink')}
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-neutral-400">{t('settings.calendarHowTo')}</p>
+                <button
+                  onClick={regenerateCalendar}
+                  disabled={regenerating}
+                  className="mt-3 rounded-full border border-neutral-200 px-3 py-2 text-xs text-neutral-600 disabled:opacity-50"
+                >
+                  {regenerating ? t('common.saving') : t('settings.regenerateLink')}
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
