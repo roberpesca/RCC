@@ -428,6 +428,14 @@ export function tMismatchReason(lang, kind) {
       es: "la sesión de hoy quedó bastante por debajo de lo planeado — recortando ligeramente el resto de la semana",
       en: "today's session came in well under what was planned — trimming the rest of the week slightly",
     },
+    differentTypeHarder: {
+      es: "hoy hiciste un tipo de sesión distinto al previsto, y más exigente de lo que indica su TSS — recortando ligeramente el resto de la semana",
+      en: "today was a different kind of session than planned, and a more demanding one than its TSS alone suggests — trimming the rest of the week slightly",
+    },
+    differentTypeEasier: {
+      es: "hoy hiciste un tipo de sesión distinto al previsto — la carga total fue similar, así que el resto de la semana sigue igual",
+      en: "today was a different kind of session than planned — the overall load was similar, so the rest of the week stays as scheduled",
+    },
   };
   return pick(table[kind], lang, '');
 }

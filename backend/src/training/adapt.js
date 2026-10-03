@@ -2,6 +2,7 @@ import { db } from '../db.js';
 import { getPlan } from './planEngine.js';
 import { DEFAULT_LANG, tAdaptReason, tAdaptMessage, tMismatchReason } from '../i18n/translations.js';
 import { localDateStr, todayStr } from '../shared/dates.js';
+import { actualShape, plannedShape } from './mismatch.js';
 
 // --- Performance Management Chart: CTL (fitness) / ATL (fatigue) / TSB (form) ---
 // Standard exponentially-weighted moving averages over daily TSS, same math used by
@@ -139,9 +140,29 @@ export function applyMismatchAdjustment(workoutId, lang = DEFAULT_LANG, userId) 
   ).all(trigger.plan_id, trigger.week_number, trigger.day_date);
 
   const { tsb } = getCurrentLoad(userId);
-  let factor = trigger.mismatch_direction === 'over' ? 0.85 : 0.9;
-  let reason = tMismatchReason(lang, trigger.mismatch_direction === 'over' ? 'overshoot' : 'undershoot');
-  if (tsb < -25) {
+  let factor;
+  let reason;
+  if (trigger.mismatch_direction === 'over') {
+    factor = 0.85;
+    reason = tMismatchReason(lang, 'overshoot');
+  } else if (trigger.mismatch_direction === 'under') {
+    factor = 0.9;
+    reason = tMismatchReason(lang, 'undershoot');
+  } else {
+    // 'different_type': the load was roughly on track, just a different kind of
+    // session than planned. A spiky/variable effort subbed in for a steady one
+    // still costs more recovery than its raw TSS suggests, so trim slightly; the
+    // reverse (an easier, steadier ride subbed in for planned intervals) left the
+    // athlete fresher than planned, so there's nothing to lighten — the rest of
+    // the week just carries on, with a note explaining why nothing changed.
+    const activity = trigger.matched_activity_id
+      ? db.prepare('SELECT * FROM activities WHERE id = ?').get(trigger.matched_activity_id)
+      : null;
+    const wentHarderThanPlanned = activity && actualShape(activity) === 'variable' && plannedShape(trigger.structure_json) === 'steady';
+    factor = wentHarderThanPlanned ? 0.95 : 1;
+    reason = tMismatchReason(lang, wentHarderThanPlanned ? 'differentTypeHarder' : 'differentTypeEasier');
+  }
+  if (tsb < -25 && factor < 1) {
     factor = Math.min(factor, 0.85);
     reason += tAdaptReason(lang, 'fatigueCap');
   }

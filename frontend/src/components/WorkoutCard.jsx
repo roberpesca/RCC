@@ -52,7 +52,11 @@ export default function WorkoutCard({ workout, onComplete, onToggleAvailability,
       {workout.mismatch_status === 'pending' && onMismatchRespond && (
         <div className="mx-4 mb-3 rounded-xl bg-amber-50 p-3">
           <p className="text-xs text-amber-800">
-            {workout.mismatch_direction === 'over' ? t('workoutCard.mismatchOver') : t('workoutCard.mismatchUnder')}
+            {workout.mismatch_direction === 'over'
+              ? t('workoutCard.mismatchOver')
+              : workout.mismatch_direction === 'under'
+              ? t('workoutCard.mismatchUnder')
+              : t('workoutCard.mismatchDifferentType')}
           </p>
           <div className="mt-2 flex gap-2">
             <button
