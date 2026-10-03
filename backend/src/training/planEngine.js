@@ -241,7 +241,19 @@ export function autoMatchActivities(planId, userId) {
   for (const w of plan.workouts) {
     if (w.workout_key === 'rest') continue;
     const candidates = activitiesByDate.get(w.day_date) || [];
-    if (candidates.length > 0 && w.status === 'planned') {
+    // A workout already sitting at 'missed' is still eligible to be matched — Strava
+    // imports/syncs often happen well after a ride, sometimes days later, and by then
+    // the day has already passed and been auto-marked missed on an earlier app open.
+    // Without this, a late-arriving ride could never attach to its day: the match
+    // branch below only ever ran once, the first time the day was seen after it
+    // passed, and after that the row's status was no longer 'planned' so it was
+    // skipped forever — permanently "missed" even once the real ride showed up, and
+    // never considered for the mismatch/adapt-the-week flow either. Once something
+    // genuinely completes a day (an explicit mark-complete, or a prior match), that
+    // stays put — this only reopens the one state that was really just "nothing had
+    // synced yet when we checked".
+    const matchable = w.status === 'planned' || w.status === 'missed';
+    if (candidates.length > 0 && matchable) {
       const match = candidates.sort((a, b) => (b.tss_estimate || 0) - (a.tss_estimate || 0))[0];
       markWorkoutStatus(w.id, 'completed', match.id, userId);
       // Confirm-first prompt: only ever set the first time a workout is matched

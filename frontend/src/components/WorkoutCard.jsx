@@ -5,6 +5,7 @@ import { todayStr } from '../utils/dates.js';
 const STATUS_STYLES = {
   planned: 'bg-neutral-100 text-neutral-500',
   completed: 'bg-brand-50 text-brand-700',
+  differentRide: 'bg-amber-50 text-amber-700',
   missed: 'bg-rose-50 text-rose-600',
 };
 
@@ -12,6 +13,11 @@ export default function WorkoutCard({ workout, onComplete, onToggleAvailability,
   const { t } = useApp();
   const [open, setOpen] = useState(!!expandedProp);
   const isRest = workout.workout_key === 'rest';
+  // A completed day whose logged ride diverged notably from what was planned (see
+  // mismatch.js) reads as "Different ride" rather than a plain "Completed" — you did
+  // ride, just not the prescribed session, which is a different thing from either
+  // nailing the plan or skipping the day entirely.
+  const statusKey = workout.status === 'completed' && workout.mismatch_status ? 'differentRide' : workout.status;
   // Only planned, not-yet-happened days can be blocked/unblocked — the backend only
   // ever reflows sessions from today onward, so toggling a past or completed day
   // wouldn't do anything.
@@ -38,8 +44,8 @@ export default function WorkoutCard({ workout, onComplete, onToggleAvailability,
             </div>
           </div>
         </div>
-        <span className={`shrink-0 rounded-full px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wide ${STATUS_STYLES[workout.status] || STATUS_STYLES.planned}`}>
-          {t(`workoutCard.${workout.status}`) || workout.status}
+        <span className={`shrink-0 rounded-full px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wide ${STATUS_STYLES[statusKey] || STATUS_STYLES.planned}`}>
+          {t(`workoutCard.${statusKey}`) || statusKey}
         </span>
       </button>
 
