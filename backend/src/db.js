@@ -194,6 +194,21 @@ CREATE TABLE IF NOT EXISTS strava_tokens (
   connected_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Intervals.icu uses a simple personal API key (Basic auth: "API_KEY" / the key)
+-- rather than OAuth, so unlike Strava there's no "single player mode" app-approval
+-- cap — every athlete gets their own key from their own intervals.icu account, so
+-- this works for everyone in a shared multi-user deployment, not just whoever
+-- deployed the instance. last_pulled_at debounces the auto-pull (see
+-- intervals/pull.js) so opening the app repeatedly doesn't hammer their API.
+CREATE TABLE IF NOT EXISTS intervals_icu_connections (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  api_key TEXT NOT NULL,
+  athlete_id TEXT,
+  athlete_name TEXT,
+  connected_at TEXT DEFAULT (datetime('now')),
+  last_pulled_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS plans (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

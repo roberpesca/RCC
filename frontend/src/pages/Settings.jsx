@@ -18,10 +18,18 @@ export default function Settings() {
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarCopied, setCalendarCopied] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [intervalsStatus, setIntervalsStatus] = useState(null);
+  const [intervalsApiKeyInput, setIntervalsApiKeyInput] = useState('');
+  const [intervalsConnecting, setIntervalsConnecting] = useState(false);
+  const [intervalsDisconnecting, setIntervalsDisconnecting] = useState(false);
+  const [intervalsSyncing, setIntervalsSyncing] = useState(false);
+  const [intervalsMsg, setIntervalsMsg] = useState(null);
+  const [intervalsError, setIntervalsError] = useState(null);
 
   useEffect(() => {
     if (profile) setForm(profile);
     refreshStrava();
+    api.getIntervalsStatus().then(setIntervalsStatus).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile]);
 
@@ -65,6 +73,48 @@ export default function Settings() {
       await refreshStrava();
     } finally {
       setDisconnecting(false);
+    }
+  };
+
+  const connectIntervals = async () => {
+    if (!intervalsApiKeyInput.trim()) return;
+    setIntervalsConnecting(true);
+    setIntervalsError(null);
+    setIntervalsMsg(null);
+    try {
+      const res = await api.connectIntervals(intervalsApiKeyInput.trim());
+      setIntervalsStatus({ connected: true, athleteName: res.athleteName });
+      setIntervalsApiKeyInput('');
+    } catch (e) {
+      setIntervalsError(e.message || t('settings.intervalsConnectError'));
+    } finally {
+      setIntervalsConnecting(false);
+    }
+  };
+
+  const disconnectIntervals = async () => {
+    setIntervalsDisconnecting(true);
+    try {
+      await api.disconnectIntervals();
+      setIntervalsStatus({ connected: false });
+      setIntervalsMsg(null);
+    } finally {
+      setIntervalsDisconnecting(false);
+    }
+  };
+
+  const syncIntervalsNow = async () => {
+    setIntervalsSyncing(true);
+    setIntervalsError(null);
+    setIntervalsMsg(null);
+    try {
+      const res = await api.syncIntervals();
+      setIntervalsMsg(t('settings.intervalsSynced', res.pulled?.imported || 0, res.pushed?.pushed || 0));
+      await refreshPlan();
+    } catch (e) {
+      setIntervalsError(e.message || t('settings.intervalsSyncError'));
+    } finally {
+      setIntervalsSyncing(false);
     }
   };
 
@@ -161,6 +211,60 @@ export default function Settings() {
                   {t('settings.connect')}
                 </a>
               )}
+            </div>
+
+            <div className="mt-4 border-t border-neutral-100 pt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium text-neutral-900">{t('settings.intervalsIcu')}</div>
+                  <div className="text-xs text-neutral-500">
+                    {intervalsStatus?.connected
+                      ? intervalsStatus.athleteName
+                        ? t('settings.connectedAs', intervalsStatus.athleteName)
+                        : t('settings.connected')
+                      : t('settings.notConnected')}
+                  </div>
+                </div>
+                {intervalsStatus?.connected && (
+                  <button
+                    onClick={disconnectIntervals}
+                    disabled={intervalsDisconnecting}
+                    className="rounded-full border border-neutral-200 px-3 py-2 text-xs text-neutral-600 disabled:opacity-50"
+                  >
+                    {t('settings.disconnect')}
+                  </button>
+                )}
+              </div>
+              <p className="mt-2 text-xs text-neutral-500">{t('settings.intervalsDesc')}</p>
+              <p className="mt-1 text-xs text-neutral-400">{t('settings.intervalsGarminCaveat')}</p>
+
+              {!intervalsStatus?.connected ? (
+                <div className="mt-3 flex gap-2">
+                  <input
+                    className={`${input} text-xs`}
+                    placeholder={t('settings.intervalsApiKeyPlaceholder')}
+                    value={intervalsApiKeyInput}
+                    onChange={(e) => setIntervalsApiKeyInput(e.target.value)}
+                  />
+                  <button
+                    onClick={connectIntervals}
+                    disabled={intervalsConnecting || !intervalsApiKeyInput.trim()}
+                    className="shrink-0 rounded-xl bg-neutral-900 px-3 py-2.5 text-xs font-medium text-white disabled:opacity-50"
+                  >
+                    {intervalsConnecting ? t('common.saving') : t('settings.connect')}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={syncIntervalsNow}
+                  disabled={intervalsSyncing}
+                  className="mt-3 rounded-full border border-neutral-200 px-3 py-2 text-xs text-neutral-600 disabled:opacity-50"
+                >
+                  {intervalsSyncing ? t('common.saving') : t('settings.syncNow')}
+                </button>
+              )}
+              {intervalsMsg && <p className="mt-2 text-xs font-medium text-brand-600">{intervalsMsg}</p>}
+              {intervalsError && <p className="mt-2 text-xs text-rose-600">{intervalsError}</p>}
             </div>
           </div>
         )}

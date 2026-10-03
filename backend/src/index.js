@@ -9,6 +9,7 @@ import { nutritionRouter } from './nutrition/routes.js';
 import { profileRouter } from './profile/routes.js';
 import { importRouter } from './import/routes.js';
 import { calendarPublicRouter, calendarRouter } from './calendar/routes.js';
+import { intervalsRouter } from './intervals/routes.js';
 import { getLang, tSystem } from './i18n/translations.js';
 import './db.js'; // ensure schema is initialized (and any one-time migration runs) on boot
 
@@ -42,6 +43,7 @@ app.use('/api/import', requireAuth, importRouter);
 // unguessable token in its own URL instead (see calendar/routes.js).
 app.use('/api/calendar', calendarPublicRouter);
 app.use('/api/calendar', requireAuth, calendarRouter);
+app.use('/api/intervals', requireAuth, intervalsRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);

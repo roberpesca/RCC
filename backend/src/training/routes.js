@@ -6,6 +6,8 @@ import { setOverride, clearOverride, proposeReschedule, applyPendingReschedule, 
 import { getProfile } from '../db.js';
 import { getLang, tProgram, tSystem } from '../i18n/translations.js';
 import { todayStr } from '../shared/dates.js';
+import { maybeAutoPull } from '../intervals/pull.js';
+import { maybeSyncPush } from '../intervals/push.js';
 
 export const trainingRouter = Router();
 
@@ -19,7 +21,7 @@ trainingRouter.get('/programs', (req, res) => {
   );
 });
 
-trainingRouter.post('/plan/generate', (req, res) => {
+trainingRouter.post('/plan/generate', async (req, res) => {
   try {
     const lang = getLang(req);
     const profile = getProfile(req.userId);
@@ -32,16 +34,22 @@ trainingRouter.post('/plan/generate', (req, res) => {
       weeklyHoursAvailable: profile.weekly_hours_available,
       ftp: profile.ftp_watts,
     });
+    await maybeSyncPush(req.userId, lang);
     res.json(getPlan(plan.id, lang, req.userId));
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
 });
 
-trainingRouter.get('/plan/active', (req, res) => {
+trainingRouter.get('/plan/active', async (req, res) => {
   const lang = getLang(req);
   const plan = getActivePlan(req.userId, lang);
   if (!plan) return res.json(null);
+  // Best-effort: pulls recent Intervals.icu activities (debounced, see
+  // intervals/pull.js) before matching, so a ride that synced there shows up here
+  // without the athlete having to do anything — same spirit as autoMatchActivities
+  // itself re-checking on every load.
+  await maybeAutoPull(req.userId);
   autoMatchActivities(plan.id, req.userId);
   res.json(getPlan(plan.id, lang, req.userId));
 });
@@ -53,11 +61,12 @@ trainingRouter.get('/plan/:id', (req, res) => {
   res.json(plan);
 });
 
-trainingRouter.post('/plan/:id/adapt', (req, res) => {
+trainingRouter.post('/plan/:id/adapt', async (req, res) => {
   try {
     const lang = getLang(req);
     const result = adaptUpcomingWeek(Number(req.params.id), lang, req.userId);
     if (!result) return res.status(404).json({ error: 'Not found' });
+    await maybeSyncPush(req.userId, lang);
     res.json(result);
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -92,9 +101,10 @@ trainingRouter.put('/availability/:date', (req, res) => {
 // the proposed changes into the plan; dismissing just discards the proposal, leaving
 // the current schedule untouched (the availability setting itself still stands, but
 // nothing about the plan changes).
-trainingRouter.post('/reschedule/apply', (req, res) => {
+trainingRouter.post('/reschedule/apply', async (req, res) => {
   try {
     const result = applyPendingReschedule(req.userId);
+    await maybeSyncPush(req.userId, getLang(req));
     res.json(result);
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -113,11 +123,12 @@ trainingRouter.post('/reschedule/dismiss', (req, res) => {
 // Confirm-first mid-week mismatch prompt (see training/mismatch.js): applying scales
 // the remaining not-yet-happened days of that same week; dismissing just clears the
 // pending flag so the prompt goes away without changing anything.
-trainingRouter.post('/workouts/:id/mismatch/apply', (req, res) => {
+trainingRouter.post('/workouts/:id/mismatch/apply', async (req, res) => {
   try {
     const lang = getLang(req);
     const result = applyMismatchAdjustment(Number(req.params.id), lang, req.userId);
     if (!result) return res.status(404).json({ error: tSystem(lang, 'unauthorized') });
+    await maybeSyncPush(req.userId, lang);
     res.json(result);
   } catch (e) {
     res.status(400).json({ error: e.message });

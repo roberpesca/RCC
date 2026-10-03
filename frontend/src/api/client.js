@@ -120,6 +120,11 @@ export const api = {
 
   getCalendarFeed: (lang) => request(`/calendar/token?lang=${lang}`),
   regenerateCalendarFeed: (lang) => request(`/calendar/token/regenerate?lang=${lang}`, { method: 'POST' }),
+
+  getIntervalsStatus: () => request('/intervals/status'),
+  connectIntervals: (apiKey) => request('/intervals/connect', { method: 'POST', body: { apiKey } }),
+  disconnectIntervals: () => request('/intervals/disconnect', { method: 'POST' }),
+  syncIntervals: () => request('/intervals/sync', { method: 'POST' }),
   applyMismatch: (id) => request(`/training/workouts/${id}/mismatch/apply`, { method: 'POST' }),
   dismissMismatch: (id) => request(`/training/workouts/${id}/mismatch/dismiss`, { method: 'POST' }),
 
